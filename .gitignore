@@ -1,0 +1,25 @@
+# Gradle and Android build output
+.gradle/
+**/build/
+
+# Local Android SDK and IDE state
+local.properties
+.idea/
+*.iml
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties
+
+# Local/generated project artifacts
+outputs/
+work/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Native build output
+.externalNativeBuild/
+.cxx/
