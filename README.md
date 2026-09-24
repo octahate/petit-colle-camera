@@ -1,8 +1,27 @@
 # Petit Colle Camera
 
+<p align="center">
+  <img src="docs/images/app-icon.png" alt="Petit Colle Camera app icon" width="144">
+</p>
+
+<p align="center"><strong>A tiny 1-bit instant sticker camera for Android.</strong></p>
+
 Petit Colle Camera is an experimental Android camera that turns a phone and a Fichero Bluetooth label printer into a tiny 1-bit instant sticker camera. Its interface and immediate capture workflow are inspired by the Casio Petit Colle ZR-1.
 
 The live viewfinder is the actual **96 × 192 binary image** sent to the printer. Exposure, contrast, threshold, zoom, error diffusion, and rendering style can all be judged before taking the picture. Captured photos are also saved as a separate higher-resolution interpretation for viewing in the phone gallery.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/preview-local.jpg" alt="Petit Colle Camera using the LOCAL renderer" width="320"></td>
+    <td align="center"><img src="docs/images/preview-blue.jpg" alt="Petit Colle Camera using the BLUE renderer" width="320"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>LOCAL</strong><br>Adaptive local threshold preview</td>
+    <td align="center"><strong>BLUE</strong><br>Blue-noise dither preview</td>
+  </tr>
+</table>
 
 > [!IMPORTANT]
 > This is an unofficial, independent project. It is not affiliated with or endorsed by Casio, Fichero, Action, AiYin, or Xiamen Print Future Technology. Product and company names belong to their respective owners.
