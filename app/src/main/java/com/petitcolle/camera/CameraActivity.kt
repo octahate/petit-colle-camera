@@ -500,14 +500,9 @@ private enum class Adjustment(val label: String) {
     fun next() = entries[(ordinal + 1) % entries.size]
 }
 
-private fun DitherMode.statusLabel() = when (this) {
-    DitherMode.ATKINSON -> "ATKINSON"
-    DitherMode.BAYER4 -> "DOT"
-    DitherMode.CLUSTER -> "CLUSTER"
-    DitherMode.HALFTONE -> "HALFTONE"
-    DitherMode.THRESHOLD -> "THRESHOLD"
-    else -> label
-}
+private const val LCD_STYLE_MAX_CHARS = 7
+
+private fun DitherMode.statusLabel(): String = label.take(LCD_STYLE_MAX_CHARS)
 
 private enum class CaptureRequest { SAVE, SAVE_AND_PRINT }
 
@@ -652,7 +647,7 @@ private class PetitColleCameraView(context: Context, private val onAction: (Came
     }
     fun setStatusFields(mode: String, style: String) {
         operationMode = mode.uppercase(Locale.US)
-        renderStyle = style.uppercase(Locale.US)
+        renderStyle = style.uppercase(Locale.US).take(LCD_STYLE_MAX_CHARS)
         invalidate()
     }
 
