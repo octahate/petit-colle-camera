@@ -60,6 +60,7 @@ class CameraActivity : AppCompatActivity() {
     @Volatile private var captureRequest: CaptureRequest? = null
     private var pendingLegacyCapture: CaptureRequest? = null
     private var adjustment = Adjustment.EXPOSURE
+    private var printerTelemetry = PrinterTelemetry()
 
     private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startCamera() else camera.setStatus("CAMERA ACCESS NEEDED")
@@ -98,7 +99,11 @@ class CameraActivity : AppCompatActivity() {
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
         cameraExecutor = Executors.newSingleThreadExecutor()
         camera = PetitColleCameraView(this) { handle(it) }
-        printer = FicheroPrinter(this) { message -> runOnUiThread { handlePrinterStatus(message) } }
+        printer = FicheroPrinter(
+            context = this,
+            onStatus = { message -> runOnUiThread { handlePrinterStatus(message) } },
+            onTelemetry = { telemetry -> runOnUiThread { handlePrinterTelemetry(telemetry) } },
+        )
         setContentView(camera)
         updateControlReadout()
         requestNeededPermissions()
@@ -140,6 +145,39 @@ class CameraActivity : AppCompatActivity() {
             else -> camera.setStatus(upper.take(18))
         }
     }
+
+    private fun handlePrinterTelemetry(value: PrinterTelemetry) {
+        val previous = printerTelemetry
+        printerTelemetry = value
+        camera.setPrinterTelemetry(value)
+        when {
+            value.coverOpen && !previous.coverOpen -> {
+                camera.setLinkState(LinkState.ERROR)
+                camera.setStatus("COVER OPEN")
+            }
+            value.outOfPaper && !previous.outOfPaper -> {
+                camera.setLinkState(LinkState.ERROR)
+                camera.setStatus("NO PAPER")
+            }
+            value.overheated && !previous.overheated -> {
+                camera.setLinkState(LinkState.ERROR)
+                camera.setStatus("PRINTER HOT")
+            }
+            value.lowBattery && !previous.lowBattery -> {
+                camera.setLinkState(LinkState.ERROR)
+                camera.setStatus("LOW BATTERY")
+            }
+            value.printing -> camera.setLinkState(LinkState.PRINTING)
+            previous.hasPrinterFault() && !value.hasPrinterFault() -> {
+                camera.setLinkState(LinkState.READY)
+                camera.setStatus("PRINTER READY")
+            }
+            previous.printing && !value.printing -> camera.setLinkState(LinkState.READY)
+        }
+    }
+
+    private fun PrinterTelemetry.hasPrinterFault(): Boolean =
+        coverOpen || outOfPaper || lowBattery || overheated
 
     private fun handle(action: CameraAction) {
         when (action) {
@@ -533,6 +571,17 @@ private class PetitColleCameraView(context: Context, private val onAction: (Came
         color = Color.argb(70, 39, 50, 42)
         strokeWidth = 1.25f
     }
+    private val statusIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(28, 39, 32)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val statusIconFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(28, 39, 32)
+        style = Paint.Style.FILL
+    }
     private val ledBezelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(48, 49, 43) }
     private val ledPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ledGlintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 255, 255, 240) }
@@ -570,6 +619,7 @@ private class PetitColleCameraView(context: Context, private val onAction: (Came
     private var renderStyle = "ATKINSON"
     private var temporaryStatus: String? = null
     private var linkState = LinkState.OFF
+    private var printerTelemetry = PrinterTelemetry()
     private val clearTemporary = Runnable { temporaryStatus = null; invalidate() }
     private var showingHelp = false
     private var pressed: Target? = null
@@ -629,6 +679,11 @@ private class PetitColleCameraView(context: Context, private val onAction: (Came
         invalidate()
     }
 
+    fun setPrinterTelemetry(value: PrinterTelemetry) {
+        printerTelemetry = value
+        invalidate()
+    }
+
     fun toggleHelp() { showingHelp = !showingHelp; invalidate() }
 
     override fun onDraw(canvas: Canvas) {
@@ -663,11 +718,100 @@ private class PetitColleCameraView(context: Context, private val onAction: (Came
             drawLcdText(canvas, message, statusScreen.centerX(), statusScreen.centerY(), cell, Paint.Align.CENTER)
         } else {
             val cell = 3f
-            drawLcdText(canvas, operationMode, statusScreen.left + 11f, statusScreen.centerY(), cell, Paint.Align.LEFT)
-            drawLcdText(canvas, renderStyle, statusScreen.right - 11f, statusScreen.centerY(), cell, Paint.Align.RIGHT)
-            val dividerX = statusScreen.centerX()
-            canvas.drawLine(dividerX, statusScreen.top + 9f, dividerX, statusScreen.bottom - 9f, statusDividerPaint)
+            drawLcdText(canvas, operationMode, statusScreen.left + 10f, statusScreen.centerY(), cell, Paint.Align.LEFT)
+            drawLcdText(canvas, renderStyle, statusScreen.right - 10f, statusScreen.centerY(), cell, Paint.Align.RIGHT)
+            val leftDivider = statusScreen.left + 117f
+            val rightDivider = statusScreen.right - 153f
+            canvas.drawLine(leftDivider, statusScreen.top + 9f, leftDivider, statusScreen.bottom - 9f, statusDividerPaint)
+            canvas.drawLine(rightDivider, statusScreen.top + 9f, rightDivider, statusScreen.bottom - 9f, statusDividerPaint)
+            drawPrinterTelemetry(canvas, (leftDivider + rightDivider) * .5f, statusScreen.centerY())
         }
+    }
+
+    private fun drawPrinterTelemetry(canvas: Canvas, centerX: Float, centerY: Float) {
+        val telemetry = printerTelemetry
+        if (telemetry.batteryPercent == null && !telemetry.coverOpen && !telemetry.outOfPaper &&
+            !telemetry.lowBattery && !telemetry.charging && !telemetry.overheated
+        ) return
+
+        telemetry.batteryPercent?.let { percent ->
+            drawBatteryIcon(canvas, centerX - 21f, centerY, percent, telemetry.charging)
+        }
+        val alertX = centerX + 30f
+        when {
+            telemetry.coverOpen -> drawCoverOpenIcon(canvas, alertX, centerY)
+            telemetry.outOfPaper -> drawPaperOutIcon(canvas, alertX, centerY)
+            telemetry.overheated -> drawHeatIcon(canvas, alertX, centerY)
+            telemetry.lowBattery -> drawAlertMark(canvas, alertX, centerY)
+        }
+    }
+
+    private fun drawBatteryIcon(canvas: Canvas, centerX: Float, centerY: Float, percent: Int, charging: Boolean) {
+        val body = RectF(centerX - 15f, centerY - 8f, centerX + 12f, centerY + 8f)
+        canvas.drawRoundRect(body, 2f, 2f, statusIconPaint)
+        canvas.drawRect(centerX + 13f, centerY - 4f, centerX + 16f, centerY + 4f, statusIconFillPaint)
+        val segments = when {
+            percent >= 88 -> 4
+            percent >= 63 -> 3
+            percent >= 38 -> 2
+            percent >= 13 -> 1
+            else -> 0
+        }
+        repeat(segments) { index ->
+            val left = body.left + 3f + index * 5.7f
+            canvas.drawRect(left, body.top + 3f, left + 4f, body.bottom - 3f, statusIconFillPaint)
+        }
+        if (charging) {
+            val path = android.graphics.Path().apply {
+                moveTo(centerX + 1f, centerY - 7f)
+                lineTo(centerX - 4f, centerY + 1f)
+                lineTo(centerX + 1f, centerY + 1f)
+                lineTo(centerX - 2f, centerY + 8f)
+                lineTo(centerX + 6f, centerY - 2f)
+                lineTo(centerX + 1f, centerY - 2f)
+                close()
+            }
+            statusIconFillPaint.color = statusScreenPaint.color
+            canvas.drawPath(path, statusIconFillPaint)
+            statusIconFillPaint.color = Color.rgb(28, 39, 32)
+        }
+    }
+
+    private fun drawCoverOpenIcon(canvas: Canvas, centerX: Float, centerY: Float) {
+        canvas.drawRect(centerX - 9f, centerY, centerX + 9f, centerY + 7f, statusIconPaint)
+        canvas.drawLine(centerX - 9f, centerY - 2f, centerX + 4f, centerY - 10f, statusIconPaint)
+        canvas.drawLine(centerX + 4f, centerY - 10f, centerX + 10f, centerY - 5f, statusIconPaint)
+    }
+
+    private fun drawPaperOutIcon(canvas: Canvas, centerX: Float, centerY: Float) {
+        val paper = android.graphics.Path().apply {
+            moveTo(centerX - 8f, centerY - 10f)
+            lineTo(centerX + 8f, centerY - 10f)
+            lineTo(centerX + 8f, centerY + 9f)
+            lineTo(centerX + 4f, centerY + 6f)
+            lineTo(centerX, centerY + 9f)
+            lineTo(centerX - 4f, centerY + 6f)
+            lineTo(centerX - 8f, centerY + 9f)
+            close()
+        }
+        canvas.drawPath(paper, statusIconPaint)
+        drawAlertMark(canvas, centerX, centerY)
+    }
+
+    private fun drawHeatIcon(canvas: Canvas, centerX: Float, centerY: Float) {
+        for (offset in floatArrayOf(-6f, 0f, 6f)) {
+            val path = android.graphics.Path().apply {
+                moveTo(centerX + offset, centerY + 9f)
+                cubicTo(centerX + offset - 4f, centerY + 4f, centerX + offset + 4f, centerY, centerX + offset, centerY - 5f)
+                cubicTo(centerX + offset - 3f, centerY - 8f, centerX + offset + 2f, centerY - 10f, centerX + offset, centerY - 12f)
+            }
+            canvas.drawPath(path, statusIconPaint)
+        }
+    }
+
+    private fun drawAlertMark(canvas: Canvas, centerX: Float, centerY: Float) {
+        canvas.drawLine(centerX, centerY - 7f, centerX, centerY + 2f, statusIconPaint)
+        canvas.drawCircle(centerX, centerY + 7f, 1.5f, statusIconFillPaint)
     }
 
     private fun fitLcdCell(value: String, maximumWidth: Float, preferred: Float): Float {

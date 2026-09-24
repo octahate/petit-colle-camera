@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -19,6 +20,16 @@ import android.os.Looper
 import java.util.Locale
 import java.util.UUID
 
+data class PrinterTelemetry(
+    val batteryPercent: Int? = null,
+    val printing: Boolean = false,
+    val coverOpen: Boolean = false,
+    val outOfPaper: Boolean = false,
+    val lowBattery: Boolean = false,
+    val charging: Boolean = false,
+    val overheated: Boolean = false,
+)
+
 /**
  * BLE transport for the AiYin D11s sold as the Fichero label printer.
  *
@@ -28,13 +39,26 @@ import java.util.UUID
 class FicheroPrinter(
     private val context: Context,
     private val onStatus: (String) -> Unit,
+    private val onTelemetry: (PrinterTelemetry) -> Unit,
 ) {
+    private enum class InfoQuery { STATUS, BATTERY }
+
     private val handler = Handler(Looper.getMainLooper())
     private val adapter: BluetoothAdapter? = context.getSystemService(BluetoothManager::class.java)?.adapter
     private var gatt: BluetoothGatt? = null
     private var writer: BluetoothGattCharacteristic? = null
     private var scanning = false
     private var scanCount = 0
+    private var printing = false
+    private var telemetryStarted = false
+    private var pendingQuery: InfoQuery? = null
+    private var telemetry = PrinterTelemetry()
+
+    private val telemetryPoll = Runnable { queryStatus() }
+    private val queryTimeout = Runnable {
+        pendingQuery = null
+        scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
+    }
 
     @SuppressLint("MissingPermission")
     fun scanAndConnect() {
@@ -47,6 +71,7 @@ class FicheroPrinter(
         }
         if (writer != null && gatt != null) {
             onStatus("Fichero ready")
+            scheduleTelemetryPoll(0L)
             return
         }
         val scanner = adapter?.bluetoothLeScanner
@@ -82,6 +107,10 @@ class FicheroPrinter(
             onStatus("Connect the Fichero first")
             return
         }
+        printing = true
+        pendingQuery = null
+        handler.removeCallbacks(telemetryPoll)
+        handler.removeCallbacks(queryTimeout)
         val packets = mutableListOf<ByteArray>()
         packets += byteArrayOf(0x10, 0xFF.toByte(), 0x10, 0x00, density.toByte())
         packets += byteArrayOf(0x10, 0xFF.toByte(), 0x84.toByte(), 0x00)
@@ -116,14 +145,119 @@ class FicheroPrinter(
         index: Int,
     ) {
         if (index >= packets.size) {
+            printing = false
             onStatus("Sent — the sticker should be printing")
+            scheduleTelemetryPoll(800L)
             return
         }
         if (!writeCharacteristic(activeGatt, characteristic, packets[index])) {
+            printing = false
             onStatus("Printer connection was interrupted")
+            scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
             return
         }
         handler.postDelayed({ sendPackets(activeGatt, characteristic, packets, index + 1) }, 18)
+    }
+
+    private fun startTelemetry() {
+        if (telemetryStarted) return
+        telemetryStarted = true
+        scheduleTelemetryPoll(120L)
+    }
+
+    private fun scheduleTelemetryPoll(delayMs: Long) {
+        handler.removeCallbacks(telemetryPoll)
+        if (writer != null && !printing) handler.postDelayed(telemetryPoll, delayMs)
+    }
+
+    private fun queryStatus() {
+        if (printing || pendingQuery != null) return
+        if (sendInfoQuery(InfoQuery.STATUS, GET_STATUS)) return
+        scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
+    }
+
+    private fun queryBattery() {
+        if (!sendInfoQuery(InfoQuery.BATTERY, GET_BATTERY)) {
+            scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
+        }
+    }
+
+    private fun sendInfoQuery(query: InfoQuery, command: ByteArray): Boolean {
+        val activeGatt = gatt ?: return false
+        val characteristic = writer ?: return false
+        pendingQuery = query
+        if (!writeCharacteristic(activeGatt, characteristic, command)) {
+            pendingQuery = null
+            return false
+        }
+        handler.removeCallbacks(queryTimeout)
+        handler.postDelayed(queryTimeout, QUERY_TIMEOUT_MS)
+        return true
+    }
+
+    private fun handleNotification(value: ByteArray) {
+        if (value.isEmpty()) return
+        if (value.size >= 2 && value[0].toInt() and 0xFF == 0xFF) {
+            pendingQuery = null
+            handler.removeCallbacks(queryTimeout)
+            updateErrorMask(value[1].toInt() and 0xFF)
+            scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
+            return
+        }
+        when (pendingQuery) {
+            InfoQuery.STATUS -> {
+                pendingQuery = null
+                handler.removeCallbacks(queryTimeout)
+                updateStatusMask(value[0].toInt() and 0xFF)
+                handler.postDelayed({ if (!printing) queryBattery() }, QUERY_GAP_MS)
+            }
+            InfoQuery.BATTERY -> {
+                pendingQuery = null
+                handler.removeCallbacks(queryTimeout)
+                if (value.size >= 2) updateTelemetry(telemetry.copy(batteryPercent = (value[1].toInt() and 0xFF).coerceIn(0, 100)))
+                scheduleTelemetryPoll(TELEMETRY_INTERVAL_MS)
+            }
+            null -> Unit
+        }
+    }
+
+    private fun updateStatusMask(mask: Int) {
+        updateTelemetry(
+            telemetry.copy(
+                printing = mask and 0x01 != 0,
+                coverOpen = mask and 0x02 != 0,
+                outOfPaper = mask and 0x04 != 0,
+                lowBattery = mask and 0x08 != 0,
+                charging = mask and 0x20 != 0,
+                overheated = mask and 0x50 != 0,
+            ),
+        )
+    }
+
+    private fun updateErrorMask(mask: Int) {
+        updateTelemetry(
+            telemetry.copy(
+                overheated = mask and 0x01 != 0,
+                coverOpen = mask and 0x02 != 0,
+                outOfPaper = mask and 0x04 != 0,
+                lowBattery = mask and 0x08 != 0,
+            ),
+        )
+    }
+
+    private fun updateTelemetry(value: PrinterTelemetry) {
+        if (value == telemetry) return
+        telemetry = value
+        onTelemetry(value)
+    }
+
+    private fun clearTelemetry() {
+        telemetryStarted = false
+        pendingQuery = null
+        printing = false
+        handler.removeCallbacks(telemetryPoll)
+        handler.removeCallbacks(queryTimeout)
+        updateTelemetry(PrinterTelemetry())
     }
 
     @SuppressLint("MissingPermission")
@@ -133,11 +267,7 @@ class FicheroPrinter(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
     ): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        activeGatt.writeCharacteristic(
-            characteristic,
-            value,
-            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
-        ) == BluetoothStatusCodes.SUCCESS
+        activeGatt.writeCharacteristic(characteristic, value, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
     } else {
         characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         characteristic.value = value
@@ -162,6 +292,7 @@ class FicheroPrinter(
         handler.removeCallbacksAndMessages(null)
         if (scanning) adapter?.bluetoothLeScanner?.stopScan(scanCallback)
         scanning = false
+        clearTelemetry()
         gatt?.disconnect()
         gatt?.close()
         gatt = null
@@ -191,14 +322,15 @@ class FicheroPrinter(
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothGatt.STATE_DISCONNECTED) {
+            if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
                 writer = null
+                clearTelemetry()
                 gatt.close()
                 if (this@FicheroPrinter.gatt === gatt) this@FicheroPrinter.gatt = null
                 onStatus("Printer disconnected")
                 return
             }
-            if (newState == BluetoothGatt.STATE_CONNECTED) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onStatus("Checking printer…")
                 gatt.discoverServices()
             }
@@ -213,17 +345,36 @@ class FicheroPrinter(
                 onStatus("This is not a supported Fichero")
                 return
             }
-            if (notifier != null) {
-                gatt.setCharacteristicNotification(notifier, true)
-                notifier.getDescriptor(CCCD)?.let { descriptor ->
-                    writeDescriptor(gatt, descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            if (notifier != null && gatt.setCharacteristicNotification(notifier, true)) {
+                val descriptor = notifier.getDescriptor(CCCD)
+                if (descriptor == null || !writeDescriptor(gatt, descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
+                    startTelemetry()
                 }
             }
             onStatus("Fichero ready")
         }
+
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (descriptor.uuid == CCCD && status == BluetoothGatt.GATT_SUCCESS) startTelemetry()
+        }
+
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            handleNotification(value)
+        }
+
+        @Deprecated("Deprecated in API 33")
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            handleNotification(characteristic.value ?: return)
+        }
     }
 
     private companion object {
+        const val TELEMETRY_INTERVAL_MS = 10_000L
+        const val QUERY_TIMEOUT_MS = 1_500L
+        const val QUERY_GAP_MS = 80L
+        val GET_STATUS = byteArrayOf(0x10, 0xFF.toByte(), 0x40)
+        val GET_BATTERY = byteArrayOf(0x10, 0xFF.toByte(), 0x50, 0xF1.toByte())
         val SERVICE_F0: UUID = UUID.fromString("000018f0-0000-1000-8000-00805f9b34fb")
         val WRITE_F0: UUID = UUID.fromString("00002af1-0000-1000-8000-00805f9b34fb")
         val NOTIFY_F0: UUID = UUID.fromString("00002af0-0000-1000-8000-00805f9b34fb")

@@ -15,11 +15,11 @@ The live viewfinder is the actual **96 × 192 binary image** sent to the printer
 <table>
   <tr>
     <td align="center"><img src="docs/images/preview-local.jpg" alt="Petit Colle Camera using the LOCAL renderer" width="320"></td>
-    <td align="center"><img src="docs/images/preview-blue.jpg" alt="Petit Colle Camera using the BLUE renderer" width="320"></td>
+    <td align="center"><img src="docs/images/preview-stucki.jpg" alt="Petit Colle Camera using the STUCKI renderer" width="320"></td>
   </tr>
   <tr>
     <td align="center"><strong>LOCAL</strong><br>Adaptive local threshold preview</td>
-    <td align="center"><strong>BLUE</strong><br>Blue-noise dither preview</td>
+    <td align="center"><strong>STUCKI</strong><br>Error-diffusion preview with printer battery status</td>
   </tr>
 </table>
 
@@ -62,7 +62,7 @@ Other Fichero-branded printers may use different hardware and protocols. They ar
 | Main viewfinder | Switch between the rear and front cameras. | — |
 | `CASIO` mark | Open the built-in guide. | — |
 
-The lower LCD shows `AUTO` or `MANUAL` on the left and the active rendering style on the right. The LED beside LINK is dark when disconnected, amber while connecting, green when ready or printing, and red after an error.
+The lower LCD shows `AUTO` or `MANUAL` on the left, live printer battery and warning pictograms in the center, and the active rendering style on the right. Cover-open, paper-out, low-battery, charging, and overheat states are read from the printer. The LED beside LINK is dark when disconnected, amber while connecting, green when ready or printing, and red after a printer or connection error.
 
 ## Rendering styles
 
@@ -200,7 +200,6 @@ app/src/main/res/
 ## Known limitations
 
 - Only the two BLE service layouts listed above are implemented.
-- Printer status responses such as paper-out, cover-open, and battery state are not yet decoded in the UI.
 - Print width and height are fixed at 96 × 192.
 - The interface is intentionally portrait-only.
 - Hardware testing has focused on one Fichero/AiYin D11s unit and one Android phone.
