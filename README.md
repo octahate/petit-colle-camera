@@ -14,12 +14,12 @@ The live viewfinder is the actual **96 × 192 binary image** sent to the printer
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/preview-local.jpg" alt="Petit Colle Camera using the LOCAL renderer" width="320"></td>
-    <td align="center"><img src="docs/images/preview-stucki.jpg" alt="Petit Colle Camera using the STUCKI renderer" width="320"></td>
+    <td align="center"><img src="docs/images/preview-clstr.jpg" alt="Petit Colle Camera using the CLSTR renderer" width="320"></td>
+    <td align="center"><img src="docs/images/preview-edge.jpg" alt="Petit Colle Camera using the EDGE renderer" width="320"></td>
   </tr>
   <tr>
-    <td align="center"><strong>LOCAL</strong><br>Adaptive local threshold preview</td>
-    <td align="center"><strong>STUCKI</strong><br>Error-diffusion preview with printer battery status</td>
+    <td align="center"><strong>CLSTR</strong><br>Clustered-dot preview with printer telemetry</td>
+    <td align="center"><strong>EDGE</strong><br>Graphic edge preview with printer telemetry</td>
   </tr>
 </table>
 
