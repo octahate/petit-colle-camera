@@ -211,6 +211,6 @@ Bug reports and focused pull requests are welcome. When changing rendering code,
 
 ## License
 
-A license has not yet been selected for this repository. Add a `LICENSE` file before publishing if you want other people to be able to copy, modify, or redistribute this project's code under explicit terms.
+Petit Colle Camera is available under the [MIT License](LICENSE). You may use, copy, modify, and distribute the project under its terms.
 
-The separately referenced [`0xMH/fichero-printer`](https://github.com/0xMH/fichero-printer) project states that it is available under the MIT License. Its license does not automatically apply to this repository.
+The separately referenced [`0xMH/fichero-printer`](https://github.com/0xMH/fichero-printer) project is also published under the MIT License and retains its own copyright and license notices.
