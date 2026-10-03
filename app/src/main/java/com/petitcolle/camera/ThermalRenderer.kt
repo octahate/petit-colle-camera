@@ -169,12 +169,31 @@ object ThermalRenderer {
         height: Int,
     ): RenderSettings {
         return if (settings.auto && calibration != null) {
+            val sourceLuminance = luminance.copyOf()
             applyCurve(luminance, calibration.toneCurve)
+            preserveGalleryHighlights(luminance, sourceLuminance)
             sharpenLaplacian(luminance, width, height, calibration.detailBoost)
             settings.copy(threshold=calibration.threshold, toneCurve=calibration.toneCurve)
         } else {
             applyManualTone(luminance, settings, width, height)
             settings
+        }
+    }
+
+    /**
+     * The live calibration intentionally clips highlights to make the tiny thermal raster
+     * punchy. Reusing that hard shoulder for the larger gallery artwork can turn walls,
+     * skies, and light clothing into broad featureless white regions. Blend a restrained
+     * amount of the captured luminance back near that shoulder, then retain a very light
+     * printable screen at the brightest value. This affects only the camera-roll branch;
+     * the 96 x 192 preview and printer master remain unchanged.
+     */
+    private fun preserveGalleryHighlights(curved: FloatArray, source: FloatArray) {
+        for (index in curved.indices) {
+            val shoulder = ((curved[index] - .72f) / .28f).coerceIn(0f, 1f)
+            val sourceWeight = shoulder * .38f
+            curved[index] = (curved[index] * (1f - sourceWeight) + source[index] * sourceWeight)
+                .coerceAtMost(.985f)
         }
     }
 
