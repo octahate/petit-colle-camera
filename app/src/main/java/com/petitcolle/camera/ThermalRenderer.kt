@@ -50,7 +50,14 @@ data class ThermalFrame(
 data class RenderedPhoto(val width: Int, val height: Int, val dots: ByteArray)
 
 object ThermalRenderer {
-    private data class AutoState(var low: Float, var high: Float, var median: Float, var initialized: Boolean = false)
+    private data class AutoState(
+        var low: Float,
+        var high: Float,
+        var median: Float,
+        var focusMedian: Float,
+        var backlight: Float,
+        var initialized: Boolean = false,
+    )
     private data class ToneResult(val settings: RenderSettings, val calibration: AutoCalibration?)
     private data class DiffusionTap(val dx: Int, val dy: Int, val weight: Float)
     private data class BitmapGlyph(val mask: Int, val blackPixels: Int)
@@ -173,7 +180,8 @@ object ThermalRenderer {
             applyCurve(luminance, calibration.toneCurve)
             preserveGalleryHighlights(luminance, sourceLuminance)
             sharpenLaplacian(luminance, width, height, calibration.detailBoost)
-            settings.copy(threshold=calibration.threshold, toneCurve=calibration.toneCurve)
+            // AUTO must not inherit a saved MANUAL error-diffusion strength.
+            settings.copy(threshold=calibration.threshold, toneCurve=calibration.toneCurve, errorDiffusion=1f)
         } else {
             applyManualTone(luminance, settings, width, height)
             settings
@@ -311,18 +319,35 @@ object ThermalRenderer {
         val lowNow = percentile(histogram,total,.02f)/255f
         val highNow = percentile(histogram,total,.98f)/255f
         val medianNow = percentile(histogram,total,.50f)/255f
+        // The weighted whole-frame median can be dominated by a bright background.
+        // Measure the center separately so a backlit face is not mapped to solid black.
+        val focusHistogram = focusHistogram(luminance, width, height)
+        val focusMedianNow = percentile(focusHistogram, focusHistogram.sum(), .50f)/255f
         val midpoint = (lowNow + highNow) * .5f
         val minimumRange = .22f
         val targetLow = if (highNow-lowNow < minimumRange) midpoint-minimumRange*.5f else lowNow
         val targetHigh = if (highNow-lowNow < minimumRange) midpoint+minimumRange*.5f else highNow
-        val state = synchronized(autoStates) { autoStates.getOrPut(settings.dither) { AutoState(targetLow,targetHigh,medianNow) } }
-        val sceneChange = abs(targetLow-state.low)+abs(targetHigh-state.high)+abs(medianNow-state.median) > .24f
-        val alpha = if (!state.initialized || sceneChange) 1f else .18f
-        state.low += (targetLow-state.low)*alpha
-        state.high += (targetHigh-state.high)*alpha
-        state.median += (medianNow-state.median)*alpha
-        state.initialized = true
-        val curve = buildToneCurve(state.low,state.high,state.median)
+        val backlightNow = ((medianNow-focusMedianNow-.08f)/.12f).coerceIn(0f,1f) *
+            ((highNow-lowNow-.40f)/.20f).coerceIn(0f,1f)
+        val curve = synchronized(autoStates) {
+            val state = autoStates.getOrPut(settings.dither) {
+                AutoState(targetLow,targetHigh,medianNow,focusMedianNow,backlightNow)
+            }
+            val sceneChange = abs(targetLow-state.low)+abs(targetHigh-state.high)+
+                abs(medianNow-state.median)+abs(focusMedianNow-state.focusMedian) > .24f
+            val alpha = if (!state.initialized || sceneChange) 1f else .18f
+            state.low += (targetLow-state.low)*alpha
+            state.high += (targetHigh-state.high)*alpha
+            state.median += (medianNow-state.median)*alpha
+            state.focusMedian += (focusMedianNow-state.focusMedian)*alpha
+            state.backlight += (backlightNow-state.backlight)*alpha
+            state.initialized = true
+            val ordinary = buildToneCurve(state.low,state.high,state.median)
+            if (state.backlight <= .01f) ordinary else {
+                val subject = buildSubjectToneCurve(state.low,state.high,state.focusMedian)
+                blendCurves(ordinary, subject, state.backlight)
+            }
+        }
         applyCurve(luminance,curve)
         val detailBoost = when (settings.dither) {
             DitherMode.THRESHOLD -> .12f
@@ -332,7 +357,7 @@ object ThermalRenderer {
         }
         sharpenLaplacian(luminance,width,height,detailBoost)
         val calibration = AutoCalibration(curve,.5f,detailBoost)
-        return ToneResult(settings.copy(threshold=.5f,toneCurve=curve),calibration)
+        return ToneResult(settings.copy(threshold=.5f,toneCurve=curve,errorDiffusion=1f),calibration)
     }
 
     private fun weightedHistogram(luminance: FloatArray, width: Int, height: Int): IntArray {
@@ -345,15 +370,47 @@ object ThermalRenderer {
         return histogram
     }
 
+    private fun focusHistogram(luminance: FloatArray, width: Int, height: Int): IntArray {
+        val histogram = IntArray(256)
+        for (y in height/6 until height*2/3) for (x in width/4 until width*3/4) {
+            val value = (luminance[y*width+x]*255f).roundToInt().coerceIn(0,255)
+            histogram[value]++
+        }
+        return histogram
+    }
+
+    private fun buildSubjectToneCurve(low: Float, high: Float, focusMedian: Float): ByteArray {
+        val black = low.coerceIn(0f,.82f)
+        val white = high.coerceIn(black+.12f,.98f)
+        val middle = focusMedian.coerceIn(black+.04f,white-.04f)
+        val input = floatArrayOf(0f,black,middle,white,1f)
+        val output = floatArrayOf(0f,.04f,.52f,.93f,1f)
+        return ByteArray(256) { value ->
+            val x = value/255f
+            val segment = when {
+                x < input[1] -> 0
+                x < input[2] -> 1
+                x < input[3] -> 2
+                else -> 3
+            }
+            val fraction = ((x-input[segment])/(input[segment+1]-input[segment]).coerceAtLeast(.001f))
+                .coerceIn(0f,1f)
+            ((output[segment]+(output[segment+1]-output[segment])*fraction)*255f)
+                .roundToInt().coerceIn(0,255).toByte()
+        }
+    }
+
+    private fun blendCurves(ordinary: ByteArray, subject: ByteArray, amount: Float): ByteArray =
+        ByteArray(256) { index ->
+            val a = ordinary[index].toInt() and 0xFF
+            val b = subject[index].toInt() and 0xFF
+            (a+(b-a)*amount).roundToInt().coerceIn(0,255).toByte()
+        }
+
     private fun buildToneCurve(low: Float, high: Float, median: Float): ByteArray {
         val range=(high-low).coerceAtLeast(.20f)
         val normalizedMedian=((median-low)/range).coerceIn(.08f,.92f)
-        // Let AUTO reach its intended midpoint in strongly backlit scenes. The former
-        // .58 floor left a dark central subject near 30% luminance even when the curve
-        // was explicitly targeting 52%, which collapsed faces and clothing into one
-        // solid region after error diffusion. Normally exposed scenes calculate a gamma
-        // above this floor and are therefore unchanged.
-        val gamma=(ln(.52f)/ln(normalizedMedian)).coerceIn(.30f,1.7f)
+        val gamma=(ln(.52f)/ln(normalizedMedian)).coerceIn(.58f,1.7f)
         val contrast=1.16f
         return ByteArray(256) { value ->
             val normalized=((value/255f-low)/range).coerceIn(0f,1f)

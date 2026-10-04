@@ -262,6 +262,7 @@ class CameraActivity : AppCompatActivity() {
             exposure = 0f,
             contrast = 1f,
             threshold = calibration.threshold,
+            errorDiffusion = 1f,
             toneCurve = calibration.toneCurve,
         )
         adjustment = Adjustment.EXPOSURE
@@ -275,6 +276,7 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun resetCurrentDither() {
+        ThermalRenderer.resetAuto(settings.dither)
         settings = RenderSettings(dither = settings.dither)
         rememberSettings()
         updateControlReadout()
