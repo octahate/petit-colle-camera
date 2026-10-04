@@ -348,7 +348,12 @@ object ThermalRenderer {
     private fun buildToneCurve(low: Float, high: Float, median: Float): ByteArray {
         val range=(high-low).coerceAtLeast(.20f)
         val normalizedMedian=((median-low)/range).coerceIn(.08f,.92f)
-        val gamma=(ln(.52f)/ln(normalizedMedian)).coerceIn(.58f,1.7f)
+        // Let AUTO reach its intended midpoint in strongly backlit scenes. The former
+        // .58 floor left a dark central subject near 30% luminance even when the curve
+        // was explicitly targeting 52%, which collapsed faces and clothing into one
+        // solid region after error diffusion. Normally exposed scenes calculate a gamma
+        // above this floor and are therefore unchanged.
+        val gamma=(ln(.52f)/ln(normalizedMedian)).coerceIn(.30f,1.7f)
         val contrast=1.16f
         return ByteArray(256) { value ->
             val normalized=((value/255f-low)/range).coerceIn(0f,1f)
