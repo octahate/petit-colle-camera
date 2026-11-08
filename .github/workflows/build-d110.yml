@@ -1,7 +1,7 @@
-name: Build D110 test APK
+name: Build Petit Colle APK
 on:
   push:
-    branches: [test-evora-d110]
+    branches: [main, test-evora-d110]
   workflow_dispatch:
 jobs:
   build:
@@ -19,5 +19,5 @@ jobs:
       - run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: petit-colle-d110-debug-apk
+          name: petit-colle-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
