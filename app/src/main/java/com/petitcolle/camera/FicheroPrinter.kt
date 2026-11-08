@@ -306,7 +306,7 @@ class FicheroPrinter(
             val name = result.scanRecord?.deviceName ?: result.device.name ?: "(unnamed)"
             scanCount += 1
             val normalizedName = name.uppercase(Locale.US)
-            if (!normalizedName.contains("FICHERO") && !normalizedName.contains("D11S") && !normalizedName.contains("AIYIN")) return
+            if (!normalizedName.contains("FICHERO") && !normalizedName.contains("D11S") && !normalizedName.contains("AIYIN") && !normalizedName.contains("D110")) return
             adapter?.bluetoothLeScanner?.stopScan(this)
             scanning = false
             onStatus("Connecting to $name…")
