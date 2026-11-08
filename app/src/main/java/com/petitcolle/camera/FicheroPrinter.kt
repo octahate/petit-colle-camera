@@ -358,7 +358,7 @@ class FicheroPrinter(
                     startTelemetry()
                 }
             }
-            onStatus("Printer ready (${if (service?.uuid == SERVICE_FF) "FF00" else "18F0"})")
+            onStatus("Printer ready")
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
