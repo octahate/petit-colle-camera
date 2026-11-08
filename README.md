@@ -6,7 +6,7 @@
 
 <p align="center"><strong>A tiny 1-bit instant sticker camera for Android.</strong></p>
 
-Petit Colle Camera is an experimental Android camera that turns a phone and a Fichero Bluetooth label printer into a tiny 1-bit instant sticker camera. Its interface and immediate capture workflow are inspired by the Casio Petit Colle ZR-1.
+Petit Colle Camera is an experimental Android camera that turns a phone and a compatible Fichero or Evora Bluetooth label printer into a tiny 1-bit instant sticker camera. Its interface and immediate capture workflow are inspired by the Casio Petit Colle ZR-1.
 
 The live viewfinder is the actual **96 × 192 binary image** sent to the printer. Exposure, contrast, threshold, zoom, error diffusion, and rendering style can all be judged before taking the picture. Captured photos are also saved as a separate higher-resolution interpretation for viewing in the phone gallery.
 
@@ -32,11 +32,12 @@ The app is a working personal-source release. It has been tested with:
 
 - a Google Pixel running a current Android release;
 - a printer advertising as `FICHERO_5836_BLE`;
+- an Evora EVR.61.344 (Kruidvat), advertising as `D110_B61D_BLE`, with successful printing on appropriately sized labels;
 - the AiYin D11s-compatible BLE services described below;
 - 96 × 192 thermal preview and printing;
 - camera switching, freezing, gallery saving, automatic tone calibration, and manual refinement.
 
-Other Fichero-branded printers may use different hardware and protocols. They are not guaranteed to work.
+Other Fichero- or Evora-branded printers may use different hardware and protocols. They are not guaranteed to work.
 
 ## Features
 
@@ -45,7 +46,7 @@ Other Fichero-branded printers may use different hardware and protocols. They ar
 - Per-style AUTO calibration with manual refinement from the latest automatic values.
 - Rear and front camera support.
 - One-button capture and gallery saving.
-- Direct BLE printing to a compatible Fichero/AiYin D11s printer.
+- Direct BLE printing to compatible Fichero/AiYin D11s and Evora EVR.61.344 printers.
 - Separate higher-resolution gallery rendering that preserves the selected 1-bit style.
 - No account, analytics, advertising SDK, cloud service, or internet permission.
 
@@ -107,7 +108,7 @@ The gallery image is therefore a higher-resolution interpretation of the same sh
 
 ## Supported printer protocol
 
-The BLE implementation targets the **Fichero D11s / AiYin D11s** family. The printer has a 96-pixel-wide, 203-DPI thermal head and accepts packed 1-bit raster rows.
+The BLE implementation targets the **Fichero D11s / AiYin D11s** family and has also been tested printing with the **Evora EVR.61.344** sold by Kruidvat (advertised BLE name `D110_B61D_BLE`). The existing raster output is 96 pixels wide; do not infer compatibility with other printers named D110.
 
 The protocol origin is the reverse-engineering work published by **0xMH**:
 
@@ -124,7 +125,7 @@ This Android project contains its own Kotlin implementation of those documented 
 | `000018f0-0000-1000-8000-00805f9b34fb` | `00002af1-0000-1000-8000-00805f9b34fb` | `00002af0-0000-1000-8000-00805f9b34fb` |
 | `0000ff00-0000-1000-8000-00805f9b34fb` | `0000ff02-0000-1000-8000-00805f9b34fb` | `0000ff01-0000-1000-8000-00805f9b34fb` |
 
-The scanner recognizes advertised names containing `FICHERO`, `D11S`, or `AIYIN`. Printing uses the documented AiYin setup commands, an ESC/POS-style `GS v 0` raster header, 12 bytes per 96-pixel row, a form feed, and the AiYin stop command.
+The scanner recognizes advertised names containing `FICHERO`, `D11S`, `AIYIN`, or `D110`. The Evora D110 prefers the `FF00` service (`FF02` write, `FF01` notify); the original Fichero retains its `18F0` preference. Printing uses the documented AiYin setup commands, an ESC/POS-style `GS v 0` raster header, 12 bytes per 96-pixel row, a form feed, and the AiYin stop command.
 
 ## Permissions and privacy
 
@@ -141,7 +142,7 @@ Photos are processed locally. The app does not request internet access and does 
 - Android 8.0 / API 26 or newer.
 - A camera.
 - Bluetooth Low Energy for printing.
-- A compatible Fichero/AiYin D11s printer for physical output.
+- A compatible Fichero/AiYin D11s or tested Evora EVR.61.344 printer for physical output.
 - Android Studio with JDK 17 and Android SDK 36 for development.
 
 The printer does not need to be paired in Android's Bluetooth settings. Turn it on and use LINK inside the app.
@@ -202,7 +203,7 @@ app/src/main/res/
 - Only the two BLE service layouts listed above are implemented.
 - Print width and height are fixed at 96 × 192.
 - The interface is intentionally portrait-only.
-- Hardware testing has focused on one Fichero/AiYin D11s unit and one Android phone.
+- Hardware testing includes a Fichero/AiYin D11s and an Evora EVR.61.344; other models remain unverified.
 
 ## Contributing
 
