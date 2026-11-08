@@ -47,6 +47,7 @@ class FicheroPrinter(
     private val adapter: BluetoothAdapter? = context.getSystemService(BluetoothManager::class.java)?.adapter
     private var gatt: BluetoothGatt? = null
     private var writer: BluetoothGattCharacteristic? = null
+    private var connectedName: String = ""
     private var scanning = false
     private var scanCount = 0
     private var printing = false
@@ -306,9 +307,10 @@ class FicheroPrinter(
             val name = result.scanRecord?.deviceName ?: result.device.name ?: "(unnamed)"
             scanCount += 1
             val normalizedName = name.uppercase(Locale.US)
-            if (!normalizedName.contains("FICHERO") && !normalizedName.contains("D11S") && !normalizedName.contains("AIYIN")) return
+            if (!normalizedName.contains("FICHERO") && !normalizedName.contains("D11S") && !normalizedName.contains("AIYIN") && !normalizedName.contains("D110")) return
             adapter?.bluetoothLeScanner?.stopScan(this)
             scanning = false
+            connectedName = name
             onStatus("Connecting to $name…")
             gatt = result.device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         }
@@ -338,7 +340,12 @@ class FicheroPrinter(
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            val service = gatt.getService(SERVICE_F0) ?: gatt.getService(SERVICE_FF)
+            val isD110 = connectedName.uppercase(Locale.US).contains("D110")
+            val service = if (isD110) {
+                gatt.getService(SERVICE_FF) ?: gatt.getService(SERVICE_F0)
+            } else {
+                gatt.getService(SERVICE_F0) ?: gatt.getService(SERVICE_FF)
+            }
             writer = service?.getCharacteristic(if (service.uuid == SERVICE_F0) WRITE_F0 else WRITE_FF)
             val notifier = service?.getCharacteristic(if (service.uuid == SERVICE_F0) NOTIFY_F0 else NOTIFY_FF)
             if (writer == null) {
@@ -351,7 +358,7 @@ class FicheroPrinter(
                     startTelemetry()
                 }
             }
-            onStatus("Fichero ready")
+            onStatus("Printer ready")
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
