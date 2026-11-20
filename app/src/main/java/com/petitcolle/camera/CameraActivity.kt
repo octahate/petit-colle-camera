@@ -27,7 +27,9 @@ import android.view.ViewConfiguration
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
@@ -43,6 +45,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class CameraActivity : AppCompatActivity() {
     private lateinit var camera: PetitColleCameraView
@@ -490,7 +493,19 @@ class CameraActivity : AppCompatActivity() {
             } finally { image.close() }
         }
         provider.unbindAll()
-        provider.bindToLifecycle(this, selector, analysis)
+        val boundCamera = provider.bindToLifecycle(this, selector, analysis)
+        if (selectedLens == CameraSelector.LENS_FACING_BACK) {
+            val point = SurfaceOrientedMeteringPointFactory(1f, 1f, analysis)
+                .createPoint(.5f, .5f, .22f)
+            // Focus once on the center of the print crop, then resume continuous AF.
+            // Do not alter AE metering: center-weighted exposure washed out bright scenes.
+            val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+                .setAutoCancelDuration(5, TimeUnit.SECONDS)
+                .build()
+            if (boundCamera.cameraInfo.isFocusMeteringSupported(action)) {
+                boundCamera.cameraControl.startFocusAndMetering(action)
+            }
+        }
         camera.setStatus(if (selectedLens == CameraSelector.LENS_FACING_FRONT) "FRONT CAMERA" else "REAR CAMERA")
     }
 
